@@ -2,8 +2,9 @@ import copy
 import dataclasses
 import itertools
 import logging
-from collections.abc import Iterable
+from collections.abc import Collection, Hashable, Iterable, Sequence
 from functools import cmp_to_key
+from typing import Optional
 
 import networkx as nx
 import numpy as np
@@ -432,7 +433,11 @@ def make_maximal_totally_ordered(maximal_list, default_order):
 
 
 class EnumerateMaximal:
-    def __init__(self, name_seq_list):
+    def __init__(
+        self,
+        name_seq_list: Collection[Sequence[Hashable]],
+        default_order: Optional[Sequence[Hashable]] = None
+    ):
         name_seq_set = set(tuple(name_seq) for name_seq in name_seq_list)
         self.unique_name_seq_list = list(name_seq_set)
         self.unique_name_seq_list.sort()
@@ -446,8 +451,19 @@ class EnumerateMaximal:
                 for i, seq_tuple in enumerate(self.unique_name_seq_list)
             }
 
-            rank_dict = _calculate_rank(name_seq_list, self.generator)
-            ranking_seq = tuple(rank_dict.keys())
+            if default_order is None:
+                rank_dict = _calculate_rank(name_seq_list, self.generator)
+                ranking_seq = tuple(rank_dict.keys())
+            else:
+                ranking_seq =\
+                    tuple(name for name in default_order if name in name_set)
+                if len(ranking_seq) < len(name_set):
+                    logger.error("error: default_order specified "
+                                 "does not give total order")
+                    raise ValueError(
+                        f"specified default_order {default_order} "
+                        f"does not give total order on {name_set}"
+                    )
             indices = [(i, j) if i < j else (j, i) for i, j in
                        itertools.combinations(range(len(ranking_seq)), 2)]
             self.rank_order = [
@@ -460,7 +476,8 @@ class EnumerateMaximal:
             self.generator = None
             self.rank_order = None
 
-    def enumerate_totally_ordered_maximal_subset(self, method="canny"):
+    def enumerate_totally_ordered_maximal_subset(self, method="canny",
+                                                 return_membership=False):
         if self.generator is None or self.generator.size == 0:
             return []
         elif self.generator.size == 1:
@@ -484,8 +501,27 @@ class EnumerateMaximal:
             maximal_poset_list, self.rank_order
         )
         to_seq = self.generator.adjacency_matrix_to_name_sequence
-        maximal_seq_list = [
-            to_seq(poset.adjacency_matrix) for poset in maximal_poset_list
-        ]
-        maximal_seq_list.sort()
+        if return_membership:
+            maximal_seq_list = []
+            for poset in maximal_poset_list:
+                seqence = to_seq(poset.adjacency_matrix)
+                consistent =\
+                    [self.unique_name_seq_list[i] for i in poset.elements]
+                consistent.sort()
+                inconsistent =\
+                    [self.unique_name_seq_list[i] for i
+                     in set(self.poset_dict.keys()).difference(poset.elements)]
+                inconsistent.sort()
+                maximal_seq_list.append({
+                    "sequence": seqence,
+                    "consistent": consistent,
+                    "inconsistent": inconsistent
+                })
+            maximal_seq_list.sort(key=lambda x: x["sequence"])
+        else:
+            maximal_seq_list = [
+                to_seq(poset.adjacency_matrix) for poset in maximal_poset_list
+            ]
+            maximal_seq_list.sort()
+
         return maximal_seq_list
